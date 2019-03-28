@@ -17,16 +17,17 @@ test_path = "ml-100k/u1.test"
 
 # Model Params.
 lr = 0.01
-epochs = 5
+epochs = 1
 batch_size = 100
 nh = 600
-k = 10
+k = 1
 
 temp_train, test_set = get_data(train_path, test_path)
 infer_train, infer_test = get_inference_data(test_set, temp_train)
 training_set = divide_batches(temp_train, batch_size)
 infer_train = divide_batches(infer_train, batch_size)
 infer_test = divide_batches(infer_test, batch_size)
+
 
 train_batch_length = len(training_set)
 infer_batch_length = len(infer_test)
@@ -82,19 +83,10 @@ class RBM:
         return vk
 
     @staticmethod
-    def train_mask(labels, predictions):
+    def mask(labels, predictions):
         mask = tf.greater(labels, -1)
         labels = tf.boolean_mask(labels, mask)
-        mask = tf.greater(predictions, -1)
         predictions = tf.boolean_mask(predictions, mask)
-        return labels, predictions
-
-    @staticmethod
-    def test_mask(labels, predictions):
-        mask = tf.greater(labels, -1)
-        predictions = tf.boolean_mask(predictions, mask)
-        mask = tf.greater(labels, -1)
-        labels = tf.boolean_mask(labels, mask)
         return labels, predictions
 
     # Accuracy.
@@ -121,7 +113,7 @@ class RBM:
 
         w_grad, vb_grad, hb_grad = self.calc_gradients(v, ph0, vk, phk)
         grads = self.update_wb(w_grad, vb_grad, hb_grad)
-        labels, predictions = self.train_mask(v, vk)
+        labels, predictions = self.mask(v, vk)
         train_acc = self.accuracy(labels, predictions)
         train_loss = self.loss(labels, predictions)
         return train_loss, train_acc
@@ -130,7 +122,8 @@ class RBM:
     def test(self, v, v_test):
         pht, ht = self._sample_h(v)
         pvt, vt = self._sample_v(ht)
-        labels, predictions = self.test_mask(v_test, vt)
+        vt = tf.where(tf.less(v_test, 0), v_test, vt)
+        labels, predictions = self.mask(v_test, vt)
         test_loss = tf.losses.mean_squared_error(labels=labels, predictions=predictions)
         test_acc = tf.reduce_mean(tf.cast(tf.equal(labels, predictions), tf.float32))
         return test_loss, test_acc
@@ -146,6 +139,8 @@ rbm_obj = RBM(nv, nh, k=k)
 
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
+tf.add_to_collection('v', v)
+tf.add_to_collection('prediction', rbm_obj.prediction(v))
 
 with tf.Session() as sess:
     sess.run(init)
@@ -153,18 +148,19 @@ with tf.Session() as sess:
     for i in range(epochs):
         tot_loss = 0
         tot_acc = 0
-        print(f"\m***Epoch: {i+1}***\n")
+        print(f"\n*** Epoch: {i+1} ***\n")
         for data in training_set:
             l, a = sess.run(rbm_obj.train(v), feed_dict={v: data})
             tot_loss += l
             tot_acc += a
             print(f"Batch Loss: {l}\nBatch Accuracy: {a}")
         print(f"\n-----Epoch: {i+1}-----\nTrain Loss: {tot_loss / train_batch_length}\nTrain Accuracy: {tot_acc / train_batch_length}\n")
+        saver.save(sess, 'rbm_models/model_1', global_step=i)
 
-        tot_loss = 0
-        tot_acc = 0
-        for train_data, test_data in zip(infer_train, infer_test):
-            l, a = sess.run(rbm_obj.test(v, v_test), feed_dict={v: train_data, v_test: test_data})
-            tot_loss += l
-            tot_acc += a
-        print(f"-----INFERENCE-----\nInference Loss: {tot_loss / infer_batch_length}\nInference Accuracy: {tot_acc / infer_batch_length}\n")
+    tot_loss = 0
+    tot_acc = 0
+    for train_data, test_data in zip(infer_train, infer_test):
+        l, a = sess.run(rbm_obj.test(v, v_test), feed_dict={v: train_data, v_test: test_data})
+        tot_loss += l
+        tot_acc += a
+    print(f"-----INFERENCE-----\nInference Loss: {tot_loss / infer_batch_length}\nInference Accuracy: {tot_acc / infer_batch_length}\n")
