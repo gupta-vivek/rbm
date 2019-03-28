@@ -124,8 +124,8 @@ class RBM:
         pvt, vt = self._sample_v(ht)
         vt = tf.where(tf.less(v_test, 0), v_test, vt)
         labels, predictions = self.mask(v_test, vt)
-        test_loss = tf.losses.mean_squared_error(labels=labels, predictions=predictions)
-        test_acc = tf.reduce_mean(tf.cast(tf.equal(labels, predictions), tf.float32))
+        test_loss = self.loss(labels=labels, predictions=predictions)
+        test_acc = self.accuracy(labels, predictions)
         return test_loss, test_acc
 
 
